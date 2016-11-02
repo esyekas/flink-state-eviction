@@ -25,26 +25,20 @@ public class MapWithStatePoC {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment();
         env.setStateBackend(new MemoryStateBackend());
 
-//        DataStream<Tuple2<String, Integer>> inputStream =
-//                env.fromElements(Tuple2.of("a", 2), Tuple2.of("b", 1), Tuple2.of("a", 3));
         // FIXME create simple test for ElementsWithGapsSource that expresses gaps
         SourceFunction<Tuple2<String, Integer>> source =
-                new ElementsWithGapsSource<Tuple2<String, Integer>>()
+                ElementsWithGapsSource
                         .addElem(Tuple2.of("a", 2)).addGap(Time.milliseconds(500))
                         .addElem(Tuple2.of("b", 1)).addGap(Time.seconds(1))
                         .addElem(Tuple2.of("a", 2)).addGap(Time.milliseconds(500))
                         .addElem(Tuple2.of("c", 5)).addGap(Time.milliseconds(700))
-                        .addElem(Tuple2.of("h", 3));
+                        .addElem(Tuple2.of("h", 3)).build();
 
         DataStream<Tuple2<String, Integer>> inputStream =
-//                env.addSource(source, TypeInformation.of(new TypeHint<Tuple2<String, Integer>>() { }));
                 env.addSource(source);
 
         inputStream.print();
 
         env.execute("MapWithStatePoC");
-
-
-
     }
 }

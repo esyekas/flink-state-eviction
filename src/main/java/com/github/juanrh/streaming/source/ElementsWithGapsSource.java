@@ -2,7 +2,7 @@ package com.github.juanrh.streaming.source;
 
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
-import org.apache.flink.shaded.com.google.common.reflect.TypeToken;
+import org.apache.flink.api.java.typeutils.TypeExtractor;
 import org.apache.flink.streaming.api.checkpoint.Checkpointed;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.types.Either;
@@ -11,9 +11,11 @@ import org.apache.flink.api.common.time.Time;
 import lombok.NonNull;
 
 import com.twitter.chill.MeatLocker;
+import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
 import java.util.LinkedList;
+import java.util.Optional;
 
 /**
  * Source function similar to StreamExecutionEnvironment.fromElements but
@@ -28,32 +30,99 @@ public class ElementsWithGapsSource<T extends Serializable>
                    ResultTypeQueryable<T> {
     public static final long serialVersionUID = 1;
 
-    // FIXME replace by typeInfo = TypeExtractor.getForObject(data[0]);
-    // as in https://github.com/apache/flink/blob/master/flink-streaming-java/src/main/java/org/apache/flink/streaming/api/environment/StreamExecutionEnvironment.java#L688
-    // https://github.com/google/guava/wiki/ReflectionExplained
-    private transient final TypeToken<T> elemsType = new TypeToken<T>(getClass()) {};
+    public static class ElementsWithGapsSourceBuilder<T extends Serializable> {
+        private LinkedList<MeatLocker<Either<T, Time>>> elements = new LinkedList<>();
+        private final Optional<TypeInformation<T>> typeInfo;
 
-    private LinkedList<MeatLocker<Either<T, Time>>> elements = new LinkedList<>();
-    private volatile boolean isRunning = true;
-    private final Serializable waitForTime = new Serializable() { };
+        public ElementsWithGapsSourceBuilder() {
+            this.typeInfo = Optional.empty();
+        }
+        public ElementsWithGapsSourceBuilder(@NonNull TypeInformation<T> typeInfo) {
+            this.typeInfo = Optional.of(typeInfo);
+        }
 
-    public ElementsWithGapsSource<T> addElem(@NonNull T elem) {
-        elements.add(new MeatLocker<>(Either.Left(elem)));
-        return this;
+        public ElementsWithGapsSourceBuilder<T> addElem(@NonNull T elem) {
+            elements.add(new MeatLocker<>(Either.Left(elem)));
+            return this;
+        }
+
+        public ElementsWithGapsSourceBuilder<T> addGap(@NonNull Time gap) {
+            elements.add(new MeatLocker<>(Either.Right(gap)));
+            return this;
+        }
+
+        private Optional<T> findAnyElem() {
+            return elements.stream()
+                            .map(MeatLocker::get)
+                            .filter(Either::isLeft)
+                            .map(Either::left)
+                            .findAny();
+        }
+
+        /**
+         * Build a ElementsWithGapsSource for the elements and gaps provided so far.
+         * This checks the state of the builder and the ElementsWithGapsSource to be generated
+         * are correct, and that we are able to generate the required TypeInformation for
+         * the elements.
+         * */
+        public ElementsWithGapsSource<T> build() {
+            Optional<T> someElem = findAnyElem();
+            Preconditions.checkState(someElem.isPresent(),
+                                     "ElementsWithGapsSource needs at least one elements that it's not a gap");
+            TypeInformation<T> elementsTypeInfo = typeInfo.orElseGet(() -> {
+                try {
+                    return TypeExtractor.getForObject(someElem.get());
+                } catch (Exception e) {
+
+                            // FIXME add new constructor for that and fix message
+                            throw new RuntimeException("Could not create TypeInformation for type " + someElem.get().getClass().getName()
+                                    + "; please specify the TypeInformation manually via "
+                                    + "ElementsWithGapsSource#addElem(TypeInformation, T) or " +
+                                      "ElementsWithGapsSource#addGap(TypeInformation, Time)");
+                        }
+                    }
+            );
+
+            return new ElementsWithGapsSource<>(elementsTypeInfo, elements);
+        }
     }
 
-    public ElementsWithGapsSource<T> addGap(@NonNull Time gap) {
-        elements.add(new MeatLocker<>(Either.Right(gap)));
-        return this;
+    // only modified by this source function during run()
+    private LinkedList<MeatLocker<Either<T, Time>>> elements;
+    private final TypeInformation<T> elementsTypeInfo;
+
+    private volatile boolean isRunning = true;
+    private final Serializable waitForTime = new Serializable() {};
+
+    ElementsWithGapsSource(TypeInformation<T> elementsTypeInfo, LinkedList<MeatLocker<Either<T, Time>>> elements) {
+        this.elementsTypeInfo = elementsTypeInfo;
+        this.elements = elements;
+    }
+
+    public static <T extends Serializable> ElementsWithGapsSourceBuilder<T> addElem(@NonNull T elem) {
+        return new ElementsWithGapsSourceBuilder().addElem(elem);
+    }
+
+    public static <T extends Serializable> ElementsWithGapsSourceBuilder<T> addElem(@NonNull TypeInformation<T> typeInfo, @NonNull T elem) {
+        return new ElementsWithGapsSourceBuilder(typeInfo).addElem(elem);
+    }
+
+    public static <T extends Serializable> ElementsWithGapsSourceBuilder<T> addGap(@NonNull Time gap) {
+        return new ElementsWithGapsSourceBuilder().addGap(gap);
+    }
+
+    public static <T extends Serializable> ElementsWithGapsSourceBuilder<T> addGap(@NonNull TypeInformation<T> typeInfo, @NonNull Time gap) {
+        return new ElementsWithGapsSourceBuilder(typeInfo).addGap(gap);
     }
 
     // -----------------------------
     // SourceFunction<T>
     @Override
     public void run(SourceContext<T> ctx) throws Exception {
+        // state was already checked in the builder before run
         while (isRunning && !elements.isEmpty()) {
             synchronized (ctx.getCheckpointLock()) {
-                Either<T, Time> next = elements.poll().get(); //elements.poll(); // null pointer as transient
+                Either<T, Time> next = elements.poll().get();
                 if (next.isLeft()) {
                     ctx.collect(next.left());
                 } else {
@@ -70,7 +139,6 @@ public class ElementsWithGapsSource<T extends Serializable>
         synchronized (waitForTime) {
             waitForTime.notify();
         }
-
         isRunning = false;
     }
 
@@ -90,6 +158,6 @@ public class ElementsWithGapsSource<T extends Serializable>
     // ResultTypeQueryable<T>
     @Override
     public TypeInformation<T> getProducedType() {
-        return TypeInformation.of(Class.class.<T>cast(elemsType.getRawType()));
+        return elementsTypeInfo;
     }
 }
