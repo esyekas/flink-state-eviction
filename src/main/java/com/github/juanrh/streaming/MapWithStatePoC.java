@@ -9,6 +9,7 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.slf4j.LoggerFactory;
 import org.slf4j.Logger;
+
 /**
  * Created by juanrh on 10/31/2016.
  *
@@ -31,7 +32,7 @@ public class MapWithStatePoC {
                         .addElem(Tuple2.of("a", 2)).addGap(Time.milliseconds(500))
                         .addElem(Tuple2.of("b", 1)).addGap(Time.seconds(1))
                         .addElem(Tuple2.of("a", 2)).addGap(Time.milliseconds(500))
-                        .addElem(Tuple2.of("c", 5)).addGap(Time.milliseconds(700))
+                        .addElem(Tuple2.of("c", 5)).addElem(Tuple2.of("d", 2)).addGap(Time.milliseconds(700))
                         .addElem(Tuple2.of("h", 3)).build();
 
         DataStream<Tuple2<String, Integer>> inputStream =

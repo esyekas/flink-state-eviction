@@ -30,23 +30,23 @@ public class ElementsWithGapsSource<T extends Serializable>
                    ResultTypeQueryable<T> {
     public static final long serialVersionUID = 1;
 
-    public static class ElementsWithGapsSourceBuilder<T extends Serializable> {
+    public static class Builder<T extends Serializable> {
         private LinkedList<MeatLocker<Either<T, Time>>> elements = new LinkedList<>();
         private final Optional<TypeInformation<T>> typeInfo;
 
-        public ElementsWithGapsSourceBuilder() {
+        public Builder() {
             this.typeInfo = Optional.empty();
         }
-        public ElementsWithGapsSourceBuilder(@NonNull TypeInformation<T> typeInfo) {
+        public Builder(@NonNull TypeInformation<T> typeInfo) {
             this.typeInfo = Optional.of(typeInfo);
         }
 
-        public ElementsWithGapsSourceBuilder<T> addElem(@NonNull T elem) {
+        public Builder<T> addElem(@NonNull T elem) {
             elements.add(new MeatLocker<>(Either.Left(elem)));
             return this;
         }
 
-        public ElementsWithGapsSourceBuilder<T> addGap(@NonNull Time gap) {
+        public Builder<T> addGap(@NonNull Time gap) {
             elements.add(new MeatLocker<>(Either.Right(gap)));
             return this;
         }
@@ -73,21 +73,19 @@ public class ElementsWithGapsSource<T extends Serializable>
                 try {
                     return TypeExtractor.getForObject(someElem.get());
                 } catch (Exception e) {
-
-                            // FIXME add new constructor for that and fix message
-                            throw new RuntimeException("Could not create TypeInformation for type " + someElem.get().getClass().getName()
-                                    + "; please specify the TypeInformation manually via "
-                                    + "ElementsWithGapsSource#addElem(TypeInformation, T) or " +
-                                      "ElementsWithGapsSource#addGap(TypeInformation, Time)");
+                     throw new RuntimeException("Could not create TypeInformation for type "
+                                + someElem.get().getClass().getName()
+                                + "; please specify the TypeInformation manually via "
+                                + "ElementsWithGapsSource#addElem(TypeInformation, T) or "
+                                + "ElementsWithGapsSource#addGap(TypeInformation, Time)");
                         }
                     }
             );
-
             return new ElementsWithGapsSource<>(elementsTypeInfo, elements);
         }
     }
 
-    // only modified by this source function during run()
+    // only modified by this source function during run(), or restoreState()
     private LinkedList<MeatLocker<Either<T, Time>>> elements;
     private final TypeInformation<T> elementsTypeInfo;
 
@@ -99,20 +97,20 @@ public class ElementsWithGapsSource<T extends Serializable>
         this.elements = elements;
     }
 
-    public static <T extends Serializable> ElementsWithGapsSourceBuilder<T> addElem(@NonNull T elem) {
-        return new ElementsWithGapsSourceBuilder().addElem(elem);
+    public static <T extends Serializable> Builder<T> addElem(@NonNull T elem) {
+        return new Builder().addElem(elem);
     }
 
-    public static <T extends Serializable> ElementsWithGapsSourceBuilder<T> addElem(@NonNull TypeInformation<T> typeInfo, @NonNull T elem) {
-        return new ElementsWithGapsSourceBuilder(typeInfo).addElem(elem);
+    public static <T extends Serializable> Builder<T> addElem(@NonNull TypeInformation<T> typeInfo, @NonNull T elem) {
+        return new Builder(typeInfo).addElem(elem);
     }
 
-    public static <T extends Serializable> ElementsWithGapsSourceBuilder<T> addGap(@NonNull Time gap) {
-        return new ElementsWithGapsSourceBuilder().addGap(gap);
+    public static <T extends Serializable> Builder<T> addGap(@NonNull Time gap) {
+        return new Builder().addGap(gap);
     }
 
-    public static <T extends Serializable> ElementsWithGapsSourceBuilder<T> addGap(@NonNull TypeInformation<T> typeInfo, @NonNull Time gap) {
-        return new ElementsWithGapsSourceBuilder(typeInfo).addGap(gap);
+    public static <T extends Serializable> Builder<T> addGap(@NonNull TypeInformation<T> typeInfo, @NonNull Time gap) {
+        return new Builder(typeInfo).addGap(gap);
     }
 
     // -----------------------------
