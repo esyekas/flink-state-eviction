@@ -3,6 +3,11 @@ package com.github.juanrh.streaming.source;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.api.java.typeutils.TypeExtractor;
+import org.apache.flink.shaded.com.google.common.base.Function;
+import org.apache.flink.shaded.com.google.common.base.Optional;
+import org.apache.flink.shaded.com.google.common.base.Predicate;
+import org.apache.flink.shaded.com.google.common.base.Supplier;
+import org.apache.flink.shaded.com.google.common.collect.FluentIterable;
 import org.apache.flink.streaming.api.checkpoint.Checkpointed;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.types.Either;
@@ -15,7 +20,6 @@ import org.apache.flink.util.Preconditions;
 
 import java.io.Serializable;
 import java.util.LinkedList;
-import java.util.Optional;
 
 /**
  * Source function similar to StreamExecutionEnvironment.fromElements but
@@ -35,28 +39,42 @@ public class ElementsWithGapsSource<T extends Serializable>
         private final Optional<TypeInformation<T>> typeInfo;
 
         public Builder() {
-            this.typeInfo = Optional.empty();
+            this.typeInfo = Optional.absent();
         }
         public Builder(@NonNull TypeInformation<T> typeInfo) {
             this.typeInfo = Optional.of(typeInfo);
         }
 
         public Builder<T> addElem(@NonNull T elem) {
-            elements.add(new MeatLocker<>(Either.Left(elem)));
+            elements.add(new MeatLocker<>(Either.<T, Time>Left(elem)));
             return this;
         }
 
         public Builder<T> addGap(@NonNull Time gap) {
-            elements.add(new MeatLocker<>(Either.Right(gap)));
+            elements.add(new MeatLocker<>(Either.<T, Time>Right(gap)));
             return this;
         }
 
         private Optional<T> findAnyElem() {
-            return elements.stream()
-                            .map(MeatLocker::get)
-                            .filter(Either::isLeft)
-                            .map(Either::left)
-                            .findAny();
+            return FluentIterable.from(elements)
+                    .transform(new Function<MeatLocker<Either<T,Time>>, Either<T, Time>>() {
+                        @Override
+                        public Either<T, Time> apply(MeatLocker<Either<T, Time>> eitherMeatLocker) {
+                            return eitherMeatLocker.get();
+                        }
+                    })
+                    .firstMatch(new Predicate<Either<T, Time>>() {
+                        @Override
+                        public boolean apply(Either<T, Time> tTimeEither) {
+                            return tTimeEither.isLeft();
+                        }
+                    })
+                    .transform(new Function<Either<T,Time>, T>() {
+                        @Override
+                        public T apply(Either<T, Time> tTimeEither) {
+                            return tTimeEither.left();
+                        }
+                    });
         }
 
         /**
@@ -66,21 +84,24 @@ public class ElementsWithGapsSource<T extends Serializable>
          * the elements.
          * */
         public ElementsWithGapsSource<T> build() {
-            Optional<T> someElem = findAnyElem();
+            final Optional<T> someElem = findAnyElem();
             Preconditions.checkState(someElem.isPresent(),
                                      "ElementsWithGapsSource needs at least one elements that it's not a gap");
-            TypeInformation<T> elementsTypeInfo = typeInfo.orElseGet(() -> {
-                try {
-                    return TypeExtractor.getForObject(someElem.get());
-                } catch (Exception e) {
-                     throw new RuntimeException("Could not create TypeInformation for type "
+            final TypeInformation<T> elementsTypeInfo =
+                typeInfo.or(new Supplier<TypeInformation<T>>() {
+                    @Override
+                    public TypeInformation<T> get() {
+                        try {
+                            return TypeExtractor.getForObject(someElem.get());
+                        } catch (Exception e) {
+                            throw new RuntimeException("Could not create TypeInformation for type "
                                 + someElem.get().getClass().getName()
                                 + "; please specify the TypeInformation manually via "
                                 + "ElementsWithGapsSource#addElem(TypeInformation, T) or "
                                 + "ElementsWithGapsSource#addGap(TypeInformation, Time)");
                         }
                     }
-            );
+                });
             return new ElementsWithGapsSource<>(elementsTypeInfo, elements);
         }
     }

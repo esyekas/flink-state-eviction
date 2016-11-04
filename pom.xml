@@ -93,6 +93,12 @@ under the License.
 			<version>1.16.10</version>
 			<scope>provided</scope>
 		</dependency>
+        <dependency>
+            <groupId>junit</groupId>
+            <artifactId>junit</artifactId>
+            <version>4.12</version>
+            <scope>test</scope>
+        </dependency>
 	</dependencies>
 
 	<profiles>
@@ -274,15 +280,17 @@ under the License.
 				<groupId>org.apache.maven.plugins</groupId>
 				<artifactId>maven-compiler-plugin</artifactId>
 				<version>3.1</version>
+                <!-- avoiding Java 8 due to the current problems with Lambdas
+                https://ci.apache.org/projects/flink/flink-docs-release-1.2/dev/java8.html -->
 				<configuration>
-					<source>1.8</source>
-					<target>1.8</target>
+					<source>1.7</source>
+					<target>1.7</target>
 				</configuration>
 			</plugin>
 		</plugins>
 		
 			
-		<!-- If you want to use Java 8 Lambda Expressions uncomment the following lines -->
+		<!-- If you want to use Java 8 Lambda Expressions uncomment the following lines
 		<pluginManagement>
 			<plugins>
 				<plugin>
@@ -341,6 +349,6 @@ under the License.
 				</plugin>
 			</plugins>
 		</pluginManagement>
-		
+		-->
 	</build>
 </project>

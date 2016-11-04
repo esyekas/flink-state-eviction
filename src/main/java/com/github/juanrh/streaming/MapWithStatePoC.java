@@ -1,6 +1,7 @@
 package com.github.juanrh.streaming;
 
 import com.github.juanrh.streaming.source.ElementsWithGapsSource;
+import org.apache.flink.api.common.JobExecutionResult;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
@@ -23,7 +24,8 @@ public class MapWithStatePoC {
     private static Logger LOG = LoggerFactory.getLogger(MapWithStatePoC.class);
 
     public static void main(String[] args) throws Exception {
-        final StreamExecutionEnvironment env = StreamExecutionEnvironment.createLocalEnvironment();
+        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+                //StreamExecutionEnvironment.createLocalEnvironment();
         env.setStateBackend(new MemoryStateBackend());
 
         // FIXME create simple test for ElementsWithGapsSource that expresses gaps
@@ -32,7 +34,7 @@ public class MapWithStatePoC {
                         .addElem(Tuple2.of("a", 2)).addGap(Time.milliseconds(500))
                         .addElem(Tuple2.of("b", 1)).addGap(Time.seconds(1))
                         .addElem(Tuple2.of("a", 2)).addGap(Time.milliseconds(500))
-                        .addElem(Tuple2.of("c", 5)).addElem(Tuple2.of("d", 2)).addGap(Time.milliseconds(700))
+                        .addElem(Tuple2.of("c", 5)).addElem(Tuple2.of("d", 2)).addGap(Time.seconds(1))
                         .addElem(Tuple2.of("h", 3)).build();
 
         DataStream<Tuple2<String, Integer>> inputStream =
@@ -40,6 +42,7 @@ public class MapWithStatePoC {
 
         inputStream.print();
 
-        env.execute("MapWithStatePoC");
+        JobExecutionResult jobResult = env.execute("MapWithStatePoC");
+        System.out.println("Job completed in " + jobResult.getNetRuntime() + " milliseconds" );
     }
 }
