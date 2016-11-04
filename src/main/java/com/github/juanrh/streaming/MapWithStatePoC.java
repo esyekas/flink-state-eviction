@@ -37,8 +37,7 @@ public class MapWithStatePoC {
                         .addElem(Tuple2.of("c", 5)).addElem(Tuple2.of("d", 2)).addGap(Time.seconds(1))
                         .addElem(Tuple2.of("h", 3)).build();
 
-        DataStream<Tuple2<String, Integer>> inputStream =
-                env.addSource(source);
+        DataStream<Tuple2<String, Integer>> inputStream = env.addSource(source);
 
         inputStream.print();
 

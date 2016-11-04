@@ -26,6 +26,9 @@ import java.util.LinkedList;
  * that alternatively allows to add time based gaps between the generated
  * items
  *
+ * I think this works because this source function it's not parallel, so there is
+ * a single instance of ElementsWithGapsSource that holds the state
+ *
  * Created by juanrh on 10/31/2016.
  */
 public class ElementsWithGapsSource<T extends Serializable>
@@ -140,6 +143,11 @@ public class ElementsWithGapsSource<T extends Serializable>
     public void run(SourceContext<T> ctx) throws Exception {
         // state was already checked in the builder before run
         while (isRunning && !elements.isEmpty()) {
+            /* https://ci.apache.org/projects/flink/flink-docs-master/api/java/index.html?org/apache/flink/streaming/api/functions/sink/DiscardingSink.html
+            * Sources that also implement the Checkpointed interface must ensure
+            * that state checkpointing, updating of internal state and emission
+            * of elements are not done concurrently.
+            * */
             synchronized (ctx.getCheckpointLock()) {
                 Either<T, Time> next = elements.poll().get();
                 if (next.isLeft()) {

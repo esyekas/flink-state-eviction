@@ -99,7 +99,14 @@ under the License.
             <version>4.12</version>
             <scope>test</scope>
         </dependency>
-	</dependencies>
+        <!-- This seems to include all other testing dependencies
+            https://mvnrepository.com/artifact/org.apache.flink/flink-test-utils_2.10 -->
+        <dependency>
+            <groupId>org.apache.flink</groupId>
+            <artifactId>flink-test-utils_2.10</artifactId>
+            <version>${flink.version}</version>
+        </dependency>
+    </dependencies>
 
 	<profiles>
 		<profile>
