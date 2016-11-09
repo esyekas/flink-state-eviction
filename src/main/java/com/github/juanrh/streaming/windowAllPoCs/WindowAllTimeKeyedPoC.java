@@ -45,9 +45,10 @@ public class WindowAllTimeKeyedPoC {
      * by creating a KeyedStream by using as key the hash of the elements module
      * a parallelism level
      *
-     * This only make sense for window assigners that ensure the subwindows will be
-     * in sync, like time based window assigners. This doesn't work for counting
-     * or sessions window assigners
+     * This only makes sense for window assigners that ensure the subwindows will be
+     * in sync, like time based window assigners, and it is more stable with ingestion
+     * and event time because the window alignment is more reliable.
+     * This doesn't work for counting or sessions window assigners.
      *
      * Also note elements from different partitions might get out of order due
      * to parallelism
