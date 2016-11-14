@@ -2,6 +2,7 @@ package com.github.juanrh.streaming;
 
 import com.github.juanrh.streaming.source.ElementsWithGapsSource;
 import lombok.Data;
+import lombok.NonNull;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
 import org.apache.flink.api.common.functions.RichMapFunction;
@@ -23,10 +24,8 @@ import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.types.Either;
 import org.apache.flink.util.Collector;
-import scala.Option;
-import scopt.Opt;
 
-import java.io.IOException;
+import java.io.Serializable;
 
 /**
  * Created by juanrh on 11/13/2016.
@@ -34,13 +33,6 @@ import java.io.IOException;
  * https://ci.apache.org/projects/flink/flink-docs-release-1.2/dev/datastream_api.html#iterations
  */
 public class MapWithStateIterPoC {
-
-    @Data
-    public static class TimeStampedValue<T> {
-        private T value;
-        private long lastAccessTimestamp;
-        private boolean isTombstoneSent;
-    }
 
     public static void main(String [] args) throws Exception {
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
@@ -88,28 +80,27 @@ public class MapWithStateIterPoC {
                 });
         DataStream<Either<Tuple2<String,Integer>,
                 String>> trans = keyedEithers.flatMap(new RichFlatMapFunction<Either<Tuple2<String,Integer>, String>, Either<Tuple2<String,Integer>, String>>() {
-            private final Tuple2<Integer, Long> defaultState = Tuple2.of(0, 0L);
+            private final TimeStampedValue<Integer> defaultState = new TimeStampedValue(0);
             // (sum, timestamp)
-            private transient ValueState<Tuple2<Integer, Long>> sumWithTimestamp;
+            private transient ValueState<TimeStampedValue<Integer>> sumWithTimestamp;
             @Override
             public void open(Configuration config) {
-                ValueStateDescriptor<Tuple2<Integer, Long>> descriptor =
+                ValueStateDescriptor<TimeStampedValue<Integer>> descriptor =
                         new ValueStateDescriptor<>(
                                 "sumWithTimestamp", // the state name
-                                TypeInformation.of(new TypeHint<Tuple2<Integer, Long>>() {}),
+                                TypeInformation.of(new TypeHint<TimeStampedValue<Integer>>() {}),
                                 defaultState); // default value of the state
                 sumWithTimestamp = getRuntimeContext().getState(descriptor);
             }
 
             @Override
             public void flatMap(Either<Tuple2<String,Integer>, String> either, Collector<Either<Tuple2<String,Integer>, String>> collector) throws Exception {
-                final Tuple2<Integer, Long> state = sumWithTimestamp.value();
+                TimeStampedValue<Integer> state = sumWithTimestamp.value();
                 if (either.isLeft()) {
                     Tuple2<String, Integer> stringInt  = either.left();
-                    final int currentSum = stringInt.f1 + state.f0;
-                    sumWithTimestamp.update(Tuple2.of(currentSum,
-                                           System.currentTimeMillis()) // state for the current key was last touched now
-                                        );
+                    final int currentSum = stringInt.f1 + state.getValue();
+                    state.setLastAccessTimestamp(System.currentTimeMillis()); // state for the current key was last touched now
+                    sumWithTimestamp.update(state);
                     Either<Tuple2<String,Integer>, String> res = Either.Left(Tuple2.of(stringInt.f0, currentSum));
                     collector.collect(res);
                 }
@@ -122,80 +113,23 @@ public class MapWithStateIterPoC {
             }
         });
 
-//
-//            @Override
-//            public Tuple2<String, Integer> map(Option<Tuple2<String, Integer>> stringInt) throws Exception {
-//                final Tuple2<Integer, Long> state = sumWithTimestamp.value();
-//                final int currentSum = stringInt.f1 + state.f0;
-//                sumWithTimestamp.update(Tuple2.of(currentSum,
-//                                                  System.currentTimeMillis()) // state for the current key was last touched now
-//                                        );
-//                return Tuple2.of(stringInt.f0, currentSum);
-//            }
-//        });
-
-
-
-////        input.print();
         trans.print();
         env.execute();
     }
-}
 
+    @Data
+    public static class TimeStampedValue<T> implements Serializable {
+        private static final long serialVersionUID = 1L;
 
-/*
-public class MapWithStateIterPoC {
-    public static void main(String [] args) throws Exception {
-        final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
-        env.setStateBackend(new MemoryStateBackend());
-        env.getConfig().disableSysoutLogging();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.IngestionTime); // activate ingestion time
+        @NonNull private T value;
+        @NonNull private long lastAccessTimestamp;
+        @NonNull private boolean isTombstoneSent;
 
-        // FIXME create simple test for ElementsWithGapsSource that expresses gaps
-        SourceFunction<Tuple2<String, Integer>> source =
-                ElementsWithGapsSource
-                        .addElem(Tuple2.of("a", 2)).addGap(Time.milliseconds(500))
-                        .addElem(Tuple2.of("b", 1)).addGap(Time.seconds(1))
-                        .addElem(Tuple2.of("a", 2)).addGap(Time.milliseconds(500))
-                        .addElem(Tuple2.of("c", 5)).addElem(Tuple2.of("d", 2)).addGap(Time.seconds(1))
-                        .addElem(Tuple2.of("b", 3)).build();
-        DataStream<Tuple2<String, Integer>> input = env.addSource(source);
-
-        KeyedStream<Tuple2<String, Integer>, Tuple> keyed = input.keyBy(0);
-
-//        IterativeStream<Tuple2<String, Integer>> ttlIter = keyed.iterate();
-
-        DataStream<Tuple2<String, Integer>> trans = keyed.map(new RichMapFunction<Tuple2<String,Integer>, Tuple2<String,Integer>>() {
-
-            // (sum, timestamp)
-            private transient ValueState<Tuple2<Integer, Long>> sumWithTimestamp;
-            @Override
-            public void open(Configuration config) {
-                ValueStateDescriptor<Tuple2<Integer, Long>> descriptor =
-                        new ValueStateDescriptor<>(
-                                "sumWithTimestamp", // the state name
-                                TypeInformation.of(new TypeHint<Tuple2<Integer, Long>>() {}),
-                                Tuple2.of(0, 0L)); // default value of the state
-                sumWithTimestamp = getRuntimeContext().getState(descriptor);
-            }
-
-            @Override
-            public Tuple2<String, Integer> map(Tuple2<String, Integer> stringInt) throws Exception {
-                final Tuple2<Integer, Long> state = sumWithTimestamp.value();
-                final int currentSum = stringInt.f1 + state.f0;
-                sumWithTimestamp.update(Tuple2.of(currentSum,
-                                                  System.currentTimeMillis()) // state for the current key was last touched now
-                                        );
-                return Tuple2.of(stringInt.f0, currentSum);
-            }
-
-        });
-
-
-//        input.print();
-        trans.print();
-        env.execute();
+        public TimeStampedValue(@NonNull T value) {
+            this.value = value;
+            this.lastAccessTimestamp = 0;
+            this.isTombstoneSent = false;
+        }
     }
 }
 
-* */
