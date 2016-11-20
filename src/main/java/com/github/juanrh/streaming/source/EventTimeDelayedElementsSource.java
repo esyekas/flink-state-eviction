@@ -15,10 +15,15 @@ import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.functions.timestamps.AscendingTimestampExtractor;
+import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor;
 import org.apache.flink.streaming.api.windowing.time.Time;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.LinkedList;
 import java.util.List;
 
 /**
@@ -36,6 +41,7 @@ import java.util.List;
  * events, instead of late events!
  * */
 public class EventTimeDelayedElementsSource<T> implements Supplier<DataStream<T>> {
+    private static final transient Logger LOG = LoggerFactory.getLogger(EventTimeDelayedElementsSource.class);
 
     @Data(staticConstructor="of")
     public static final class Elem<T> implements Serializable, Comparable<Elem<T>> {
@@ -90,17 +96,17 @@ public class EventTimeDelayedElementsSource<T> implements Supplier<DataStream<T>
                                                                       Iterable<T> elements) {
         Preconditions.checkArgument(elements.iterator().hasNext(),
                 "EventTimeDelayedElementsSource needs at least one element");
+        List<Elem<T>> delayedElements = new LinkedList<>();
+        long totalDelayMillis = 0L;
+        for (T elem : elements) {
+            delayedElements.add(Elem.of(elem, Time.milliseconds(totalDelayMillis)));
+            totalDelayMillis += gap.toMilliseconds();
+        }
+
         return new EventTimeDelayedElementsSource<>(
                 env,
                 Optional.<TypeInformation<T>>absent(), // FIXME
-                Iterables.transform(elements,
-                        new Function<T, Elem<T>>() {
-                            @Override
-                            public Elem<T> apply(T elem) {
-                                return Elem.of(elem, gap);
-                            }
-                        }
-                ));
+                delayedElements);
     }
 
     /**
@@ -109,14 +115,25 @@ public class EventTimeDelayedElementsSource<T> implements Supplier<DataStream<T>
      * */
     @Override
     public DataStream<T> get() {
-        // sort so we can use AscendingTimestampExtractor
-        Collections.sort(elements);
-        final long startTimestamp = System.currentTimeMillis();
+        return getEarly();
+    }
+
+    private DataStream<T> getLate() {
+        long totalDelayMillis = 0L;
+        for (Elem<T> elem : elements) {
+            totalDelayMillis += elem.getDelay().toMilliseconds();
+        }
+        LOG.warn("totalDelayMillis = {}", totalDelayMillis);
+
+        final long startTimestamp = System.currentTimeMillis() - totalDelayMillis;
         return env.fromCollection(elements)
-           .assignTimestampsAndWatermarks(new AscendingTimestampExtractor<Elem<T>>() {
+           .assignTimestampsAndWatermarks(new BoundedOutOfOrdernessTimestampExtractor<Elem<T>>(Time.milliseconds(totalDelayMillis*2)) {
                @Override
-               public long extractAscendingTimestamp(Elem<T> elem) {
-                   return startTimestamp + elem.getDelay().toMilliseconds();
+               public long extractTimestamp(Elem<T> elem) {
+                   long timestamp = startTimestamp + elem.getDelay().toMilliseconds();
+                   LOG.warn("Assigning timestamp of {}  to element {}",
+                             timestamp,  elem.getValue());
+                   return timestamp;
                }
            })
            .map(new MapFunction<Elem<T>, T>() {
@@ -126,5 +143,29 @@ public class EventTimeDelayedElementsSource<T> implements Supplier<DataStream<T>
                }
            })
            .returns(elementsTypeInfo);
+    }
+
+    public DataStream<T> getEarly() {
+        // sort so we can use AscendingTimestampExtractor
+        Collections.sort(elements);
+
+        final long startTimestamp = System.currentTimeMillis();
+        return env.fromCollection(elements)
+           .assignTimestampsAndWatermarks(new AscendingTimestampExtractor<Elem<T>>() {
+               @Override
+               public long extractAscendingTimestamp(Elem<T> elem) {
+                        long timestamp = startTimestamp + elem.getDelay().toMilliseconds();
+                        LOG.warn("Assigning timestamp of {}  to element {}",
+                                timestamp,  elem.getValue());
+                        return timestamp;
+                    }
+                })
+                .map(new MapFunction<Elem<T>, T>() {
+                    @Override
+                    public T map(Elem<T> elem) throws Exception {
+                        return elem.getValue();
+                    }
+                })
+                .returns(elementsTypeInfo);
     }
 }

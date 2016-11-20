@@ -19,7 +19,7 @@ Following
     https://ci.apache.org/projects/flink/flink-docs-master/api/java/org/apache/flink/streaming/util/StreamingMultipleProgramsTestBase.html
 */
 public class EventTimeDelayedElementsSourceTest  extends StreamingMultipleProgramsTestBase {
-    final List<Integer> inputList = ContiguousSet.create(Range.closed(0, 10), DiscreteDomain.integers()).asList();
+    final List<Integer> inputList = ContiguousSet.create(Range.closed(1, 6), DiscreteDomain.integers()).asList();
 
     public static StreamExecutionEnvironment getEnv() {
         // get shared execution context
@@ -32,9 +32,7 @@ public class EventTimeDelayedElementsSourceTest  extends StreamingMultipleProgra
     }
 
     /**
-     * Early events seem to be interpreted as events generated at the
-     * current processing time, so this just prints "55" which is the
-     * result of adding all the events
+     * This seems to work both with early and late events
      * */
     @Test
     public void fixme() throws Exception {
