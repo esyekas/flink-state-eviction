@@ -1,13 +1,11 @@
 package com.github.juanrh.streaming.source;
 
+import com.google.common.base.Function;
+import com.google.common.base.Optional;
+import com.google.common.base.Predicate;
+import com.google.common.collect.FluentIterable;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
-import org.apache.flink.api.java.typeutils.TypeExtractor;
-import org.apache.flink.shaded.com.google.common.base.Function;
-import org.apache.flink.shaded.com.google.common.base.Optional;
-import org.apache.flink.shaded.com.google.common.base.Predicate;
-import org.apache.flink.shaded.com.google.common.base.Supplier;
-import org.apache.flink.shaded.com.google.common.collect.FluentIterable;
 import org.apache.flink.streaming.api.checkpoint.Checkpointed;
 import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.types.Either;
@@ -89,22 +87,9 @@ public class ElementsWithGapsSource<T extends Serializable>
         public ElementsWithGapsSource<T> build() {
             final Optional<T> someElem = findAnyElem();
             Preconditions.checkState(someElem.isPresent(),
-                                     "ElementsWithGapsSource needs at least one elements that it's not a gap");
+                                     "ElementsWithGapsSource needs at least one element that it's not a gap");
             final TypeInformation<T> elementsTypeInfo =
-                typeInfo.or(new Supplier<TypeInformation<T>>() {
-                    @Override
-                    public TypeInformation<T> get() {
-                        try {
-                            return TypeExtractor.getForObject(someElem.get());
-                        } catch (Exception e) {
-                            throw new RuntimeException("Could not create TypeInformation for type "
-                                + someElem.get().getClass().getName()
-                                + "; please specify the TypeInformation manually via "
-                                + "ElementsWithGapsSource#addElem(TypeInformation, T) or "
-                                + "ElementsWithGapsSource#addGap(TypeInformation, Time)");
-                        }
-                    }
-                });
+                SourceUtils.getTypeInformation(typeInfo, someElem.get());
             return new ElementsWithGapsSource<>(elementsTypeInfo, elements);
         }
     }
