@@ -1,8 +1,8 @@
 package com.github.juanrh.streaming.windowAllPoCs;
 
+import com.github.juanrh.streaming.StreamingUtils;
 import com.github.juanrh.streaming.source.ElementsWithGapsSource;
 import org.apache.flink.api.common.functions.ReduceFunction;
-import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.java.functions.KeySelector;
 import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
@@ -16,6 +16,7 @@ import org.apache.flink.streaming.api.functions.source.SourceFunction;
 import org.apache.flink.streaming.api.functions.windowing.WindowFunction;
 import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.assigners.WindowAssigner;
+import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow;
 import org.apache.flink.streaming.api.windowing.windows.Window;
 
@@ -155,7 +156,7 @@ reordered elements in the same window due to parallelism
 
         AllWindowedStream<Tuple2<String, Integer>, TimeWindow> allWindowed = input.windowAll(windowAssigner);
         DataStream<Tuple2<String, Integer>> allWindowedApplied = allWindowed.reduce(redFun);
-        WindowAllKeyedPoC.printWithName(allWindowedApplied, "allWindowedReduced");
+        StreamingUtils.printWithName(allWindowedApplied, "allWindowedReduced");
 
         // Parallel attempt
         final int parallelism = 2; //env.getParallelism();
@@ -163,7 +164,7 @@ reordered elements in the same window due to parallelism
         ParAllWindowedStream<Tuple2<String, Integer>, TimeWindow> parAllWindowed =
                 new ParAllWindowedStream(input, parallelism, windowAssigner);
         DataStream<Tuple2<String, Integer>> parAllWindowedApplied = parAllWindowed.reduce(redFun);
-        WindowAllKeyedPoC.printWithName(parAllWindowedApplied, "parAllWindowedApplied");
+        StreamingUtils.printWithName(parAllWindowedApplied, "parAllWindowedApplied");
 
         env.execute();
     }

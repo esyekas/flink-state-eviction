@@ -1,5 +1,6 @@
 package com.github.juanrh.streaming.windowAllPoCs;
 
+import com.github.juanrh.streaming.StreamingUtils;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.api.java.functions.KeySelector;
@@ -48,15 +49,6 @@ public class WindowAllKeyedPoC {
                 .countWindow(size);
     }
 
-    public static <T> void printWithName(final DataStream<T> stream, final String name) {
-        stream.map(new MapFunction<T, String>() {
-            @Override
-            public String map(T value) throws Exception {
-                return name + ": " + value ;
-            }
-        }).print();
-    }
-
     /*
 An execution:
 
@@ -95,7 +87,7 @@ An execution:
         DataStream<Tuple2<String, Integer>> allWindowedApplied =
                 allWindowed.apply(new WindowAgg());
         //allWindowedApplied.print();
-        printWithName(allWindowedApplied, "allWindowedApplied");
+        StreamingUtils.printWithName(allWindowedApplied, "allWindowedApplied");
 
         System.out.println("env.getParallelism() = " + env.getParallelism());
         final int parallelism = 8; //env.getParallelism();
@@ -138,7 +130,7 @@ An execution:
         DataStream<Tuple2<String, Integer>> windowedAppliedPar =
             windowed.apply(applyFunPar);
         // windowedAppliedPar.print();
-        printWithName(windowedAppliedPar, "windowedAppliedPar");
+        StreamingUtils.printWithName(windowedAppliedPar, "windowedAppliedPar");
 
         /*
         * This works the same as windowedAppliedPar, as it is essentially the same
@@ -147,10 +139,10 @@ An execution:
                 countWindow(input, parallelism, countSize)
                 .apply(applyFunPar);
         // windowedAppliedPar2.print();
-        printWithName(windowedAppliedPar2, "windowedAppliedPar2");
+        StreamingUtils.printWithName(windowedAppliedPar2, "windowedAppliedPar2");
 
         // this reduces  by the groups defined in keyBy, just like fold
-        printWithName(input.keyBy(0).reduce(new ReduceFunction<Tuple2<String, Integer>>() {
+        StreamingUtils.printWithName(input.keyBy(0).reduce(new ReduceFunction<Tuple2<String, Integer>>() {
             @Override
             public Tuple2<String, Integer> reduce(Tuple2<String, Integer> v1, Tuple2<String, Integer> v2) throws Exception {
                 assert v1.f0 == v2.f0; // ensured by keyBy
