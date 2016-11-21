@@ -15,6 +15,8 @@ import lombok.NonNull;
 
 import com.twitter.chill.MeatLocker;
 import org.apache.flink.util.Preconditions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.Serializable;
 import java.util.LinkedList;
@@ -34,6 +36,7 @@ public class ElementsWithGapsSource<T extends Serializable>
                    Checkpointed<LinkedList<MeatLocker<Either<T, Time>>>>,
                    ResultTypeQueryable<T> {
     public static final long serialVersionUID = 1;
+    private static final Logger LOG = LoggerFactory.getLogger(ElementsWithGapsSource.class);
 
     public static class Builder<T extends Serializable> {
         private LinkedList<MeatLocker<Either<T, Time>>> elements = new LinkedList<>();
@@ -144,10 +147,12 @@ public class ElementsWithGapsSource<T extends Serializable>
                 }
             }
         }
+        LOG.warn("Source stopped");
     }
 
     @Override
     public void cancel() {
+        LOG.warn("Interrupting source");
         synchronized (waitForTime) {
             waitForTime.notify();
         }
