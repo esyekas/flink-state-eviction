@@ -1,5 +1,6 @@
 package com.github.juanrh.streaming.source;
 
+import com.github.juanrh.streaming.StreamingUtils;
 import com.google.common.collect.*;
 import org.apache.flink.api.common.functions.ReduceFunction;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
@@ -53,6 +54,8 @@ public class EventTimeDelayedElementsSourceTest  extends StreamingMultipleProgra
                         .setEarlyImplementation(earlyImplementation)
                         .get();
 
+        StreamingUtils.printWithName(input, "input");
+
         DataStream<Integer> result =  input.timeWindowAll(Time.seconds(1))
               .reduce(new ReduceFunction<Integer>() {
                   @Override
@@ -60,7 +63,7 @@ public class EventTimeDelayedElementsSourceTest  extends StreamingMultipleProgra
                       return i1 + i2;
                   }
               });
-        result.print();
+        StreamingUtils.printWithName(result, "result");
 
         List<Integer> collectedResult = ImmutableList.copyOf(DataStreamUtils.collect(result));
         // env.execute(); // DataStreamUtils.collect already call env.execute(), calling it
