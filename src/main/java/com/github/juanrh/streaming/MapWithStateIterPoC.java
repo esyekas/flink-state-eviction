@@ -246,6 +246,7 @@ public class MapWithStateIterPoC {
                         private final TimeStampedValue<Integer> defaultState = new TimeStampedValue(0);
                         private transient ScheduledExecutorService executor;
                         private transient ValueState<TimeStampedValue<Integer>> valueState;
+
                         @Override
                         public void open(Configuration config) {
                             ValueStateDescriptor<TimeStampedValue<Integer>> descriptor =
@@ -257,6 +258,23 @@ public class MapWithStateIterPoC {
                             executor = Executors.newSingleThreadScheduledExecutor();
                         }
 
+                        @Override
+                        public void close() {
+                            // just shutdown ASAP, it's ok to lose the pending
+                            // tombstones as the state will be deleted anyway
+                            executor.shutdownNow();
+                        }
+
+                        /* FIXME: this is not fault tolerant, if there was a failure while the executor is
+                        scheduled then the tombstone will be lost. Could send the event in the future using
+                        event time, but that would restrict us to using event time, and I would prefer to
+                        have an approximate eviction based on processing time that is independent of the
+                        job time characteristic ==> store in a fault tolerant collection the set of scheduled
+                        tombstones, and implement checkpointed to issue all the pending tombstone during the
+                        recovery, which is a good enough approximation even though would lead to checking
+                        the tombstones a little early. Then the Runnable will remove the tombstone from the
+                        collection after it has been collected
+                        * */
                         private void sendTombstone(final Collector<Either<Tuple2<String,Integer>, String>> collector, final String key) {
                             LOG.warn("Scheduling the shipment of a tombstone for key {}", key);
                             executor.schedule(new Runnable() {
