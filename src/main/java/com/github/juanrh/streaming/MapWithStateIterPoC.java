@@ -258,6 +258,7 @@ public class MapWithStateIterPoC {
         private transient ScheduledExecutorService executor;
         private transient ValueState<TimeStampedValue<Integer>> valueState;
         private transient Set<String> pendingTombstones;
+        private transient List<String> recoveringTombstones = null;
 
         @Override
         public void open(Configuration config) {
@@ -279,16 +280,6 @@ public class MapWithStateIterPoC {
             LOG.warn("Closed function");
         }
 
-        /* FIXME: this is not fault tolerant, if there was a failure while the executor is
-        scheduled then the tombstone will be lost. Could send the event in the future using
-       event time, but that would restrict us to using event time, and I would prefer to
-        have an approximate eviction based on processing time that is independent of the
-       job time characteristic ==> store in a fault tolerant collection the set of scheduled
-        tombstones, and implement checkpointed to issue all the pending tombstone during the
-       recovery, which is a good enough approximation even though would lead to checking
-        the tombstones a little early. Then the Runnable will remove the tombstone from the
-       collection after it has been collected
-                        * */
         private void sendTombstone(final Collector<Either<Tuple2<String,Integer>, String>> collector, final String key) {
             LOG.warn("Scheduling the shipment of a tombstone for key {}", key);
             pendingTombstones.add(key);
@@ -305,6 +296,12 @@ public class MapWithStateIterPoC {
 
         @Override
         public void flatMap(Either<Tuple2<String,Integer>, String> either, Collector<Either<Tuple2<String,Integer>, String>> collector) throws Exception {
+            if (recoveringTombstones != null) {
+                for (String tombstone : recoveringTombstones) {
+                    LOG.warn("Recovering tombstone {}", tombstone);
+                    sendTombstone(collector, tombstone);
+                }
+            }
             final TimeStampedValue<Integer> state = valueState.value();
             if (either.isLeft()) {
                 Tuple2<String, Integer> stringInt = either.left();
@@ -346,7 +343,11 @@ public class MapWithStateIterPoC {
 
         @Override
         public void restoreState(LinkedList<String> tombstones) throws Exception {
-            pendingTombstones.addAll(tombstones);
+            /* Send all the pending tombstone during the recovery, which is a good enough
+            approximation even though would lead to sending the tombstones a little early */
+            // only have access to the collector in flatMap, keep in recoveringTombstones
+            // until next call to flatMap
+            recoveringTombstones = Lists.newLinkedList(tombstones);
         }
     }
 
