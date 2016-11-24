@@ -301,6 +301,7 @@ public class MapWithStateIterPoC {
                     LOG.warn("Recovering tombstone {}", tombstone);
                     sendTombstone(collector, tombstone);
                 }
+                recoveringTombstones = null;
             }
             final TimeStampedValue<Integer> state = valueState.value();
             if (either.isLeft()) {
@@ -338,7 +339,9 @@ public class MapWithStateIterPoC {
 
         @Override
         public LinkedList<String> snapshotState(long l, long l1) throws Exception {
-            return Lists.newLinkedList(pendingTombstones);
+            LinkedList<String> state = Lists.newLinkedList(pendingTombstones);
+            state.addAll(recoveringTombstones);
+            return state;
         }
 
         @Override
