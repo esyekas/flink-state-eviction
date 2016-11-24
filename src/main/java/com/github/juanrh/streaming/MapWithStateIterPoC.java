@@ -1,8 +1,10 @@
 package com.github.juanrh.streaming;
 
 import com.github.juanrh.streaming.source.ElementsWithGapsSource;
+import com.google.common.collect.Lists;
 import lombok.Data;
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import org.apache.flink.api.common.functions.*;
 import org.apache.flink.api.common.state.ValueState;
 import org.apache.flink.api.common.state.ValueStateDescriptor;
@@ -14,6 +16,7 @@ import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
 import org.apache.flink.streaming.api.TimeCharacteristic;
+import org.apache.flink.streaming.api.checkpoint.Checkpointed;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.IterativeStream;
 import org.apache.flink.streaming.api.datastream.KeyedStream;
@@ -24,6 +27,8 @@ import org.apache.flink.types.Either;
 import org.apache.flink.util.Collector;
 
 import java.io.Serializable;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
@@ -37,143 +42,186 @@ import org.slf4j.Logger;
  * https://ci.apache.org/projects/flink/flink-docs-release-1.2/dev/datastream_api.html#iterations
  */
 /*
-
-16/11/20 22:16:07 WARN InstanceConnectionInfo: No hostname could be resolved for the IP address 127.0.0.1, using IP address as host name. Local input split assignment (such as for HDFS files) may be impacted.
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
-16/11/20 22:16:07 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN InstanceConnectionInfo: No hostname could be resolved for the IP address 127.0.0.1, using IP address as host name. Local input split assignment (such as for HDFS files) may be impacted.
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsOut'. Metric will not be reported. (null)
+16/11/23 22:07:59 WARN MetricGroup: Name collision: Group already contains a Metric with the name 'numRecordsIn'. Metric will not be reported. (null)
 1> input: (a,2)
 2> eitherInputOrTombstoneIter: Left((a,2))
-16/11/20 22:16:07 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key a
 2> out: (a,2)
 2> trans: Left((a,2))
+16/11/23 22:07:59 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key a
 2> input: (a,3)
-2> eitherInputOrTombstoneIter: Left((a,3))
 2> out: (a,5)
 2> trans: Left((a,5))
+2> eitherInputOrTombstoneIter: Left((a,3))
+16/11/23 22:08:00 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key a
 2> trans: Right(a)
-16/11/20 22:16:08 WARN MapWithStateIterPoC: Sending a tombstone for key a
-16/11/20 22:16:08 WARN MapWithStateIterPoC: Received a tombstone for key a
-16/11/20 22:16:08 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key a
+16/11/23 22:08:00 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key a
+16/11/23 22:08:00 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key a
 2> eitherInputOrTombstoneIter: Right(a)
-3> input: (b,1)
 7> eitherInputOrTombstoneIter: Left((b,1))
+16/11/23 22:08:00 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key b
 7> out: (b,1)
 7> trans: Left((b,1))
-16/11/20 22:16:08 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key b
-16/11/20 22:16:08 WARN MapWithStateIterPoC: Sending a tombstone for key a
+3> input: (b,1)
 2> trans: Right(a)
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Received a tombstone for key a
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key a
+16/11/23 22:08:00 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key a
+16/11/23 22:08:00 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key a
+16/11/23 22:08:00 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key a
 2> eitherInputOrTombstoneIter: Right(a)
-4> input: (c,5)
-5> input: (d,2)
 7> trans: Right(b)
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Sending a tombstone for key b
+16/11/23 22:08:00 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key b
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key c
 7> eitherInputOrTombstoneIter: Left((c,5))
 7> out: (c,5)
 7> trans: Left((c,5))
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key c
-1> eitherInputOrTombstoneIter: Left((d,2))
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key d
 1> out: (d,2)
+7> eitherInputOrTombstoneIter: Right(b)
 1> trans: Left((d,2))
-7> eitherInputOrTombstoneIter: Right(b)
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Received a tombstone for key b
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key b
+1> eitherInputOrTombstoneIter: Left((d,2))
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key d
+5> input: (d,2)
+4> input: (c,5)
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key b
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key b
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key a
 2> trans: Right(a)
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Sending a tombstone for key a
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Received a tombstone for key a
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Evicted state for key a
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key a
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Evicted state for key a
 2> eitherInputOrTombstoneIter: Right(a)
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Sending a tombstone for key c
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key c
 7> trans: Right(c)
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Sending a tombstone for key d
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key d
 1> trans: Right(d)
-16/11/20 22:16:09 WARN MapWithStateIterPoC: Sending a tombstone for key b
 7> trans: Right(b)
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Received a tombstone for key d
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key d
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Received a tombstone for key c
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key c
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key b
 7> eitherInputOrTombstoneIter: Right(c)
-1> eitherInputOrTombstoneIter: Right(d)
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key c
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key c
 7> eitherInputOrTombstoneIter: Right(b)
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Received a tombstone for key b
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Evicted state for key b
-16/11/20 22:16:10 WARN ElementsWithGapsSource: Source stopped
-6> input: (a,3)
-2> eitherInputOrTombstoneIter: Left((a,3))
+1> eitherInputOrTombstoneIter: Right(d)
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key d
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key d
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key b
+16/11/23 22:08:01 WARN MapWithStateIterPoC$CoreTransformationFunction: Evicted state for key b
 2> out: (a,3)
 2> trans: Left((a,3))
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key a
-1> trans: Right(d)
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Sending a tombstone for key d
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Sending a tombstone for key c
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key a
+7> out: (c,7)
+7> trans: Left((c,7))
+7> eitherInputOrTombstoneIter: Left((c,2))
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key c
 7> trans: Right(c)
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Received a tombstone for key d
+7> input: (c,2)
+6> input: (a,3)
+2> eitherInputOrTombstoneIter: Left((a,3))
+1> trans: Right(d)
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key d
 7> eitherInputOrTombstoneIter: Right(c)
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Received a tombstone for key c
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Evicted state for key d
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key c
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key c
 1> eitherInputOrTombstoneIter: Right(d)
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Evicted state for key c
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key d
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Evicted state for key d
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key a
 2> trans: Right(a)
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Sending a tombstone for key a
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key a
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key a
 2> eitherInputOrTombstoneIter: Right(a)
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Received a tombstone for key a
-16/11/20 22:16:10 WARN MapWithStateIterPoC: Scheduling the shipment of a tombstone for key a
-16/11/20 22:16:11 WARN MapWithStateIterPoC: Sending a tombstone for key a
+7> trans: Right(c)
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key c
+7> eitherInputOrTombstoneIter: Right(c)
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key c
+16/11/23 22:08:02 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key c
 2> trans: Right(a)
-16/11/20 22:16:11 WARN MapWithStateIterPoC: Received a tombstone for key a
+16/11/23 22:08:03 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key a
+16/11/23 22:08:03 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key a
+16/11/23 22:08:03 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key a
 2> eitherInputOrTombstoneIter: Right(a)
-16/11/20 22:16:11 WARN MapWithStateIterPoC: Evicted state for key a
+7> trans: Right(c)
+16/11/23 22:08:03 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key c
+7> eitherInputOrTombstoneIter: Right(c)
+16/11/23 22:08:03 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key c
+16/11/23 22:08:03 WARN MapWithStateIterPoC$CoreTransformationFunction: Evicted state for key c
+16/11/23 22:08:03 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key a
+2> trans: Right(a)
+16/11/23 22:08:03 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key a
+16/11/23 22:08:03 WARN MapWithStateIterPoC$CoreTransformationFunction: Evicted state for key a
+2> eitherInputOrTombstoneIter: Right(a)
+8> input: (c,1)
+16/11/23 22:08:04 WARN ElementsWithGapsSource: Source stopped
+16/11/23 22:08:04 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key c
+7> eitherInputOrTombstoneIter: Left((c,1))
+7> out: (c,1)
+7> trans: Left((c,1))
+16/11/23 22:08:04 WARN ExecutionGraph: Received accumulator result for unknown execution 15478db2b0dc56ff2f843e33bdee6215.
+16/11/23 22:08:04 WARN ExecutionGraph: Received accumulator result for unknown execution 7a4a3468da0cc8d8acd4aab6589d86a8.
+7> trans: Right(c)
+16/11/23 22:08:04 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key c
+7> eitherInputOrTombstoneIter: Right(c)
+16/11/23 22:08:04 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key c
+16/11/23 22:08:04 WARN MapWithStateIterPoC$CoreTransformationFunction: Scheduling the shipment of a tombstone for key c
+7> trans: Right(c)
+16/11/23 22:08:05 WARN MapWithStateIterPoC$CoreTransformationFunction: Sending a tombstone for key c
+7> eitherInputOrTombstoneIter: Right(c)
+16/11/23 22:08:05 WARN MapWithStateIterPoC$CoreTransformationFunction: Received a tombstone for key c
+16/11/23 22:08:05 WARN MapWithStateIterPoC$CoreTransformationFunction: Evicted state for key c
+16/11/23 22:08:10 WARN MapWithStateIterPoC$CoreTransformationFunction: Closed function
+16/11/23 22:08:10 WARN MapWithStateIterPoC$CoreTransformationFunction: Closed function
+16/11/23 22:08:10 WARN MapWithStateIterPoC$CoreTransformationFunction: Closed function
+16/11/23 22:08:10 WARN MapWithStateIterPoC$CoreTransformationFunction: Closed function
+16/11/23 22:08:10 WARN MapWithStateIterPoC$CoreTransformationFunction: Closed function
+16/11/23 22:08:10 WARN MapWithStateIterPoC$CoreTransformationFunction: Closed function
+16/11/23 22:08:10 WARN MapWithStateIterPoC$CoreTransformationFunction: Closed function
+16/11/23 22:08:10 WARN MapWithStateIterPoC$CoreTransformationFunction: Closed function
 
-Had to manually stop this
+Process finished with exit code 0
 * */
 public class MapWithStateIterPoC {
     private static final Logger LOG = LoggerFactory.getLogger(MapWithStateIterPoC.class);
@@ -194,6 +242,114 @@ public class MapWithStateIterPoC {
         }
     }
 
+    @RequiredArgsConstructor
+    public static class CoreTransformationFunction
+        extends RichFlatMapFunction<Either<Tuple2<String,Integer>, String>, Either<Tuple2<String,Integer>, String>>
+        implements Checkpointed<LinkedList<String>>  {
+
+        private final long ttlMillis;
+        private final long ttlRefreshIntervalMillis;
+
+        private static final Logger LOG = LoggerFactory.getLogger(CoreTransformationFunction.class);
+        private static final TimeStampedValue<Integer> DEFAULT_STATE = new TimeStampedValue(0);
+
+        // FIXME consider replacing by Akka scheduler http://doc.akka.io/docs/akka/2.4.4/java/scheduler.html
+        // if the ActorContext is available somehow
+        private transient ScheduledExecutorService executor;
+        private transient ValueState<TimeStampedValue<Integer>> valueState;
+        private transient Set<String> pendingTombstones;
+
+        @Override
+        public void open(Configuration config) {
+            ValueStateDescriptor<TimeStampedValue<Integer>> descriptor =
+                    new ValueStateDescriptor<>(
+                            "sumWithTimestamp", // the state name
+                            TypeInformation.of(new TypeHint<TimeStampedValue<Integer>>() {}),
+                            DEFAULT_STATE); // default value of the state
+            valueState = getRuntimeContext().getState(descriptor);
+            executor = Executors.newSingleThreadScheduledExecutor();
+            pendingTombstones = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
+        }
+
+        @Override
+        public void close() {
+            // just shutdown ASAP, it's ok to lose the pending
+            // tombstones as the state will be deleted anyway
+            executor.shutdownNow();
+            LOG.warn("Closed function");
+        }
+
+        /* FIXME: this is not fault tolerant, if there was a failure while the executor is
+        scheduled then the tombstone will be lost. Could send the event in the future using
+       event time, but that would restrict us to using event time, and I would prefer to
+        have an approximate eviction based on processing time that is independent of the
+       job time characteristic ==> store in a fault tolerant collection the set of scheduled
+        tombstones, and implement checkpointed to issue all the pending tombstone during the
+       recovery, which is a good enough approximation even though would lead to checking
+        the tombstones a little early. Then the Runnable will remove the tombstone from the
+       collection after it has been collected
+                        * */
+        private void sendTombstone(final Collector<Either<Tuple2<String,Integer>, String>> collector, final String key) {
+            LOG.warn("Scheduling the shipment of a tombstone for key {}", key);
+            pendingTombstones.add(key);
+            executor.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    LOG.warn("Sending a tombstone for key {}", key);
+                    Either<Tuple2<String,Integer>, String> tombstone = Either.Right(key);
+                    collector.collect(tombstone);
+                    pendingTombstones.remove(key);
+                }
+            }, ttlRefreshIntervalMillis, TimeUnit.MILLISECONDS);
+        }
+
+        @Override
+        public void flatMap(Either<Tuple2<String,Integer>, String> either, Collector<Either<Tuple2<String,Integer>, String>> collector) throws Exception {
+            final TimeStampedValue<Integer> state = valueState.value();
+            if (either.isLeft()) {
+                Tuple2<String, Integer> stringInt = either.left();
+                final int currentSum = stringInt.f1 + state.getValue();
+                state.setValue(currentSum); // state business logic
+                state.setLastAccessTimestamp(System.currentTimeMillis()); // update state for the current key was last touched now
+                if (! state.isTombstoneSent()) {
+                    // sent tombstone to the same key: this is only required to send the first tombstone
+                    // FIXME: this only works if we have access to the key!!!
+                    state.setTombstoneSent(true);
+                    sendTombstone(collector, stringInt.f0);
+                }
+                valueState.update(state);
+                Either<Tuple2<String,Integer>, String> result = Either.Left(Tuple2.of(stringInt.f0, currentSum));
+                collector.collect(result);
+            } else {
+                // we just received a tombstone
+                LOG.warn("Received a tombstone for key {}", either.right());
+                long currentTimeMillis = System.currentTimeMillis();
+                if (currentTimeMillis - state.getLastAccessTimestamp() >= ttlMillis) {
+                    // evict and stop sending tombstones for this key
+                    // next time this key appears and it uses the state, the default state
+                    // that makes isTombstoneSent = false will be used, and that will send
+                    // the first tombstone of the new eviction cycle
+                    valueState.clear();
+                    LOG.warn("Evicted state for key " + either.right());
+                } else {
+                    // send another tombstone: the current tombstone prevented sending
+                    // more tombstone for events after the one that sent the current tombstone
+                    sendTombstone(collector, either.right());
+                }
+            }
+        }
+
+        @Override
+        public LinkedList<String> snapshotState(long l, long l1) throws Exception {
+            return Lists.newLinkedList(pendingTombstones);
+        }
+
+        @Override
+        public void restoreState(LinkedList<String> tombstones) throws Exception {
+            pendingTombstones.addAll(tombstones);
+        }
+    }
+
     public static void main(String [] args) throws Exception {
         final StreamExecutionEnvironment env =
                 StreamExecutionEnvironment.createLocalEnvironment(8);
@@ -208,7 +364,8 @@ public class MapWithStateIterPoC {
                         .addElem(Tuple2.of("a", 3)).addGap(Time.milliseconds(500))
                         .addElem(Tuple2.of("b", 1)).addGap(Time.milliseconds(500))
                         .addElem(Tuple2.of("c", 5)).addElem(Tuple2.of("d", 2)).addGap(Time.seconds(1))
-                        .addElem(Tuple2.of("a", 3)).build();
+                        .addElem(Tuple2.of("a", 3)).addElem(Tuple2.of("c", 2))
+                        .addGap(Time.seconds(2)).addElem(Tuple2.of("c", 1)).build();
 
         DataStream<Tuple2<String, Integer>> input = env.addSource(source);
 
@@ -242,87 +399,7 @@ public class MapWithStateIterPoC {
                             return either.right();
                         }
                     })
-                    .flatMap(new RichFlatMapFunction<Either<Tuple2<String,Integer>, String>, Either<Tuple2<String,Integer>, String>>() {
-                        private final TimeStampedValue<Integer> defaultState = new TimeStampedValue(0);
-                        private transient ScheduledExecutorService executor;
-                        private transient ValueState<TimeStampedValue<Integer>> valueState;
-
-                        @Override
-                        public void open(Configuration config) {
-                            ValueStateDescriptor<TimeStampedValue<Integer>> descriptor =
-                                    new ValueStateDescriptor<>(
-                                            "sumWithTimestamp", // the state name
-                                            TypeInformation.of(new TypeHint<TimeStampedValue<Integer>>() {}),
-                                            defaultState); // default value of the state
-                            valueState = getRuntimeContext().getState(descriptor);
-                            executor = Executors.newSingleThreadScheduledExecutor();
-                        }
-
-                        @Override
-                        public void close() {
-                            // just shutdown ASAP, it's ok to lose the pending
-                            // tombstones as the state will be deleted anyway
-                            executor.shutdownNow();
-                        }
-
-                        /* FIXME: this is not fault tolerant, if there was a failure while the executor is
-                        scheduled then the tombstone will be lost. Could send the event in the future using
-                        event time, but that would restrict us to using event time, and I would prefer to
-                        have an approximate eviction based on processing time that is independent of the
-                        job time characteristic ==> store in a fault tolerant collection the set of scheduled
-                        tombstones, and implement checkpointed to issue all the pending tombstone during the
-                        recovery, which is a good enough approximation even though would lead to checking
-                        the tombstones a little early. Then the Runnable will remove the tombstone from the
-                        collection after it has been collected
-                        * */
-                        private void sendTombstone(final Collector<Either<Tuple2<String,Integer>, String>> collector, final String key) {
-                            LOG.warn("Scheduling the shipment of a tombstone for key {}", key);
-                            executor.schedule(new Runnable() {
-                                @Override
-                                public void run() {
-                                    LOG.warn("Sending a tombstone for key {}", key);
-                                    Either<Tuple2<String,Integer>, String> tombstone = Either.Right(key);
-                                    collector.collect(tombstone);
-                                }
-                            }, ttlRefreshIntervalMillis, TimeUnit.MILLISECONDS);
-                        }
-
-                        @Override
-                        public void flatMap(Either<Tuple2<String,Integer>, String> either, Collector<Either<Tuple2<String,Integer>, String>> collector) throws Exception {
-                            final TimeStampedValue<Integer> state = valueState.value();
-                            if (either.isLeft()) {
-                                Tuple2<String, Integer> stringInt = either.left();
-                                final int currentSum = stringInt.f1 + state.getValue();
-                                state.setValue(currentSum); // state business logic
-                                state.setLastAccessTimestamp(System.currentTimeMillis()); // update state for the current key was last touched now
-                                if (! state.isTombstoneSent()) {
-                                    // sent tombstone to the same key: this is only required to send the first tombstone
-                                    // FIXME: this only works if we have access to the key!!!
-                                    state.setTombstoneSent(true);
-                                    sendTombstone(collector, stringInt.f0);
-                                }
-                                valueState.update(state);
-                                Either<Tuple2<String,Integer>, String> result = Either.Left(Tuple2.of(stringInt.f0, currentSum));
-                                collector.collect(result);
-                            } else {
-                                // we just received a tombstone
-                                LOG.warn("Received a tombstone for key {}", either.right());
-                                long currentTimeMillis = System.currentTimeMillis();
-                                if (currentTimeMillis - state.getLastAccessTimestamp() >= ttlMillis) {
-                                    // evict and stop sending tombstones for this key
-                                    // next time this key appears and it uses the state, the default state
-                                    // that makes isTombstoneSent = false will be used, and that will send
-                                    // the first tombstone of the new eviction cycle
-                                    valueState.clear();
-                                    LOG.warn("Evicted state for key " + either.right());
-                                } else {
-                                    // send another tombstone: the current tombstone prevented sending
-                                    // more tombstone for events after the one that sent the current tombstone
-                                    sendTombstone(collector, either.right());
-                                }
-                            }
-                        }
-                    });
+                    .flatMap(new CoreTransformationFunction(ttlMillis, ttlRefreshIntervalMillis));
 
         eitherInputOrTombstoneIter.closeWith(trans.filter(new FilterFunction<Either<Tuple2<String, Integer>, String>>() {
             @Override
