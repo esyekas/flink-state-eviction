@@ -1,6 +1,8 @@
 package com.github.juanrh.streaming;
 
 import com.github.juanrh.streaming.source.ElementsWithGapsSource;
+import com.google.common.base.*;
+import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 import lombok.Data;
 import lombok.NonNull;
@@ -33,6 +35,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hadoop.hdfs.protocol.datatransfer.Op;
 import org.slf4j.LoggerFactory;
 import org.slf4j.Logger;
 
@@ -258,7 +261,7 @@ public class MapWithStateIterPoC {
         private transient ScheduledExecutorService executor;
         private transient ValueState<TimeStampedValue<Integer>> valueState;
         private transient Set<String> pendingTombstones;
-        private transient List<String> recoveringTombstones = null;
+        private transient Optional<List<String>> recoveringTombstones;
 
         @Override
         public void open(Configuration config) {
@@ -270,6 +273,7 @@ public class MapWithStateIterPoC {
             valueState = getRuntimeContext().getState(descriptor);
             executor = Executors.newSingleThreadScheduledExecutor();
             pendingTombstones = Collections.newSetFromMap(new ConcurrentHashMap<String, Boolean>());
+            recoveringTombstones = Optional.absent();
         }
 
         @Override
@@ -296,12 +300,12 @@ public class MapWithStateIterPoC {
 
         @Override
         public void flatMap(Either<Tuple2<String,Integer>, String> either, Collector<Either<Tuple2<String,Integer>, String>> collector) throws Exception {
-            if (recoveringTombstones != null) {
-                for (String tombstone : recoveringTombstones) {
+            if (recoveringTombstones.isPresent()) {
+                for (String tombstone : recoveringTombstones.get()) {
                     LOG.warn("Recovering tombstone {}", tombstone);
                     sendTombstone(collector, tombstone);
                 }
-                recoveringTombstones = null;
+                recoveringTombstones = Optional.absent();
             }
             final TimeStampedValue<Integer> state = valueState.value();
             if (either.isLeft()) {
@@ -340,7 +344,9 @@ public class MapWithStateIterPoC {
         @Override
         public LinkedList<String> snapshotState(long l, long l1) throws Exception {
             LinkedList<String> state = Lists.newLinkedList(pendingTombstones);
-            state.addAll(recoveringTombstones);
+            if (recoveringTombstones.isPresent()){
+                state.addAll(recoveringTombstones.get());
+            }
             return state;
         }
 
@@ -350,14 +356,13 @@ public class MapWithStateIterPoC {
             approximation even though would lead to sending the tombstones a little early */
             // only have access to the collector in flatMap, keep in recoveringTombstones
             // until next call to flatMap
-            recoveringTombstones = Lists.newLinkedList(tombstones);
+            recoveringTombstones = Optional.<List<String>>of(Lists.newLinkedList(tombstones));
         }
     }
 
     public static void main(String [] args) throws Exception {
         final StreamExecutionEnvironment env =
-                StreamExecutionEnvironment.createLocalEnvironment(8);
-                        //.getExecutionEnvironment();
+                StreamExecutionEnvironment.getExecutionEnvironment();
         env.setStateBackend(new MemoryStateBackend());
         env.getConfig().disableSysoutLogging();
         env.setStreamTimeCharacteristic(TimeCharacteristic.IngestionTime);
