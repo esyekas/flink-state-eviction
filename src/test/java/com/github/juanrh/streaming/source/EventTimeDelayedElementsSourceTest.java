@@ -22,7 +22,7 @@ import java.util.List;
 Following
     https://ci.apache.org/projects/flink/flink-docs-master/api/java/org/apache/flink/streaming/util/StreamingMultipleProgramsTestBase.html
 */
-public class EventTimeDelayedElementsSourceTest  extends StreamingMultipleProgramsTestBase {
+public class EventTimeDelayedElementsSourceTest extends StreamingMultipleProgramsTestBase {
 
     public static StreamExecutionEnvironment getEnv() {
         // get shared execution context
@@ -30,7 +30,7 @@ public class EventTimeDelayedElementsSourceTest  extends StreamingMultipleProgra
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
         env.setStateBackend(new MemoryStateBackend());
         env.getConfig().disableSysoutLogging();
-        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime); // activate ingestion time
+        env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime); // activate event time
         return env;
     }
 

@@ -1,7 +1,6 @@
 package com.github.juanrh.streaming;
 
 import com.github.juanrh.streaming.source.ElementsWithGapsSource;
-import com.google.common.base.*;
 import com.google.common.base.Optional;
 import com.google.common.collect.Lists;
 import lombok.Data;
@@ -35,7 +34,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.hadoop.hdfs.protocol.datatransfer.Op;
 import org.slf4j.LoggerFactory;
 import org.slf4j.Logger;
 
