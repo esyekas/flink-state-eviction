@@ -65,9 +65,7 @@ public class MapWithStateTest extends StreamingMultipleProgramsTestBase {
                         return stringIntegerTuple2.f0;
                     }
                 });
-        DataStream<Tuple2<String, Integer>> mapped =
-                mapWithState.get()
-                .returns(TypeInformation.of(new TypeHint<Tuple2<String, Integer>>() {}));
+        DataStream<Tuple2<String, Integer>> mapped = mapWithState.get();
         // TODO collect and assert
         // TODO ensure logging is customized to see all intermediate data as in the PoC
         StreamingUtils.printWithName(mapped, "mapped");
