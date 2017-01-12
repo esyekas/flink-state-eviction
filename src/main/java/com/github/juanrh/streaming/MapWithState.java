@@ -1,17 +1,13 @@
 package com.github.juanrh.streaming;
 
-import com.google.common.base.Function;
 import com.google.common.base.Optional;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.collect.Lists;
 import com.google.common.reflect.TypeToken;
-import com.sun.xml.internal.bind.v2.model.core.TypeInfo;
 import com.twitter.chill.MeatLocker;
 import lombok.*;
 import lombok.experimental.Accessors;
-import lombok.experimental.Delegate;
-import org.apache.flink.api.common.functions.FilterFunction;
 import org.apache.flink.api.common.functions.FlatMapFunction;
 import org.apache.flink.api.common.functions.MapFunction;
 import org.apache.flink.api.common.functions.RichFlatMapFunction;
@@ -20,14 +16,12 @@ import org.apache.flink.api.common.state.ValueStateDescriptor;
 import org.apache.flink.api.common.typeinfo.TypeHint;
 import org.apache.flink.api.common.typeinfo.TypeInformation;
 import org.apache.flink.api.java.functions.KeySelector;
-import org.apache.flink.api.java.tuple.Tuple2;
 import org.apache.flink.api.java.typeutils.EitherTypeInfo;
 import org.apache.flink.api.java.typeutils.ResultTypeQueryable;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.checkpoint.Checkpointed;
 import org.apache.flink.streaming.api.datastream.DataStream;
 import org.apache.flink.streaming.api.datastream.IterativeStream;
-import org.apache.flink.streaming.api.datastream.KeyedStream;
 import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.windowing.time.Time;
 import org.apache.flink.types.Either;
@@ -35,7 +29,6 @@ import org.apache.flink.util.Collector;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import javax.annotation.Nullable;
 import java.io.IOException;
 import java.io.Serializable;
 import java.util.Collections;
@@ -54,14 +47,6 @@ import java.util.concurrent.TimeUnit;
  *  - how to encapsulate: there is any equivalent to DataSet.runOperation for DataStream?
  *  - how to get the KeySelector from a KeyedStream? ==> see how they do it in mapWithState
  */
-/*
-* TODO extend like this was a method of KeyedDatastream
-*  - take DataStream<T> as self in constructor
-*  - have chained setter for other arguments: if default make sense; should feel like a map
-* in the interface in the degenerate case
-*  - ask for KeySelector for now
-* */
-//@RequiredArgsConstructor
 @Accessors(fluent = true)
 public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputStreamOperator<Out>>, Serializable  {
     private static final long serialVersionUID = 1L;
@@ -78,12 +63,10 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
     @Setter @Getter @NonNull
     private KeySelector<In, Key> keySelector = null;
 
-//    @AllArgsConstructor
     private static class EitherKeySelector<In, Key> implements KeySelector<Either<In,Key>, Key>, ResultTypeQueryable {
-//        @Getter
         private final MeatLocker<KeySelector<In, Key>> keySelector; // FIXME why MeatLocker required if KeySelector extends Serializable
-//        @Getter
         private transient final TypeInformation typeInfo;
+
         public EitherKeySelector(KeySelector<In, Key> keySelector, TypeInformation typeInfo) {
             this.keySelector = new MeatLocker<>(keySelector);
             this.typeInfo = typeInfo;
@@ -103,9 +86,6 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
         }
     }
 
-    // TODO follow https://github.com/google/guava/wiki/ReflectionExplained
-    // and if necessary get the type token for the whole class and project the type variables
-    private transient final TypeToken<Key> keyType = new TypeToken<Key>(getClass()) {};
 
     // TODO memoize in lazy memoized supplier?
     @Override
@@ -119,21 +99,8 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
                     public Either<In, Key> map(In in) throws Exception {
                         return Either.Left(in);
                     }
-                })//;
-        .returns(new EitherTypeInfo<>(types.typeInfoIn, types.typeInfoKey));
-//        new EitherTypeInfo(Class.class.<In>cast(types.typeIn.getRawType()),
-//                null);
-                           //Class.types.typeKey.getRawType());
-        // TODO: consider conversion utility from TypeToken to TypeInfo
-
-
-            // InvalidTypesException: Type of TypeVariable 'In' in 'class com.github.juanrh.streaming.MapWithState'
-            // could not be determined. This is most likely a type erasure problem. The type extraction currently
-            // supports types with generic variables only in cases where all variables in the return type can be deduced from the input type(s).
-           //.returns(new TypeHint<Either<In, Key>>() {});
-            // InvalidTypesException: Cannot infer the type information from the class alone.
-            // This is most likely because the class represents a generic type. In that case,please use the 'returns(TypeHint)' method instead.
-        //.returns(Class.class.<Either<In, Key>>cast(types.typeEitherInKey.getRawType()));
+                })
+               .returns(new EitherTypeInfo<>(types.typeInfoIn, types.typeInfoKey));
 
         // FIXME make timeout configurable
         IterativeStream<Either<In, Key>> eitherInputOrTombstoneIter =
@@ -191,13 +158,34 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
         return output;
     }
 
+    /* This follows https://github.com/google/guava/wiki/ReflectionExplained to store
+     the type information in TypeTokens, preserving it after type erasure. These TypeTokens
+     are then converted into TypeInformation values that are used to type the intermediate
+     streams. Otherwise Flink fails to build the query plan because without the types it is
+     not able to setup the serialization. Other simpler but failed attempts:
+
+       - In get(): eitherInputOrTombstone ...
+                    .returns(new TypeHint<Either<In, Key>>() {});
+
+         InvalidTypesException: Type of TypeVariable 'In' in 'class com.github.juanrh.streaming.MapWithState'
+         could not be determined. This is most likely a type erasure problem. The type extraction currently
+         supports types with generic variables only in cases where all variables in the return type can be deduced from the input type(s).
+
+        - In get(): eitherInputOrTombstone ...
+                    .returns(Class.class.<Either<In, Key>>cast(types.typeEitherInKey.getRawType()));
+
+          InvalidTypesException: Cannot infer the type information from the class alone.
+          This is most likely because the class represents a generic type. In that case,please use the 'returns(TypeHint)' method instead.
+
+     FIXME is this solution complete?, does it work for arbitrary complex types? If not additional methods should be added
+     so the user can explicitly declare the types
+    * */
     private static class Types<In, Key, State, Out> {
         TypeToken<In> typeIn = new TypeToken<In>(getClass()) {};
         TypeToken<Key> typeKey = new TypeToken<Key>(getClass()) {};
-        TypeToken<State> typeState= new TypeToken<State>(getClass()) {};
         TypeToken<Out> typeOut = new TypeToken<Out>(getClass()) {};
-        TypeToken<Either<In, Key>> typeEitherInKey = new TypeToken<Either<In, Key>>(getClass()) {};
 
+        // TODO: consider conversion utility from TypeToken to TypeInfo
         TypeInformation<In> typeInfoIn = TypeInformation.of(Class.class.<In>cast(typeIn.getRawType()));
         TypeInformation<Key> typeInfoKey = TypeInformation.of(Class.class.<Key>cast(typeKey.getRawType()));
         TypeInformation<Out> typeInfoOut = TypeInformation.of(Class.class.<Out>cast(typeOut.getRawType()));

@@ -74,8 +74,6 @@ public class MapWithStateTest extends StreamingMultipleProgramsTestBase {
                     }
                 });
         DataStream<Tuple2<String, Integer>> mapped = mapWithState.get();
-        // TODO collect and assert
-        // TODO ensure logging is customized to see all intermediate data as in the PoC
         StreamingUtils.printWithName(mapped, "mapped");
 
         List<Tuple2<String, Integer>> collectedMapped = ImmutableList.copyOf(DataStreamUtils.collect(mapped));
@@ -86,7 +84,6 @@ public class MapWithStateTest extends StreamingMultipleProgramsTestBase {
                 ImmutableList.of(Tuple2.of("a", 2), Tuple2.of("a", 5), Tuple2.of("b", 1));
         List<Tuple2<String, Integer>> expectedSuffix =
                 ImmutableList.of(Tuple2.of("c", 7), Tuple2.of("a", 3), Tuple2.of("c", 1));
-
 
         List<Tuple2<String, Integer>> expectedResult1 =
                 ImmutableList.<Tuple2<String, Integer>>builder()
