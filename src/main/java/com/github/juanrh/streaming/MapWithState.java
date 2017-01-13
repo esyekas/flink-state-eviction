@@ -106,23 +106,28 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
         IterativeStream<Either<In, Key>> eitherInputOrTombstoneIter =
                 eitherInputOrTombstone.iterate(Time.seconds(5).toMilliseconds());
 
-        EitherKeySelector<In, Key> eitherKeySelector = new EitherKeySelector<>(keySelector, types.typeInfoKey);
+        final EitherKeySelector<In, Key> eitherKeySelector = new EitherKeySelector<>(keySelector, types.typeInfoKey);
         DataStream<Either<Out, Key>> trans =
                 eitherInputOrTombstoneIter
-                        // required to avoid java.lang.RuntimeException: State key serializer has not been configured
-                        // in the config. This operation cannot use partitioned state.
-                        .keyBy(eitherKeySelector
-//                                new KeySelector<Either<In,Key>, Key>() {
-//                            @Override
-//                            public Key getKey(Either<In, Key> either) throws Exception {
-//                                if (either.isLeft()) {
-//                                    return keySelector.getKey(either.left());
-//                                }
-//                                return either.right();
-//                            }
-//                        }
+                        /*
+                        Keying here is required to avoid "java.lang.RuntimeException: State key serializer has not been configured
+                        in the config. This operation cannot use partitioned state.". Makes sense because the flatMap uses
+                        a state by key
+                        */
+                        .keyBy(
+                                /* Using an anonymous inner class leads to "org.apache.flink.api.common.InvalidProgramException: The
+                                implementation of the KeySelector is not serializable. The implementation accesses fields of its enclosing
+                                class, which is a common reason for non-serializability. A common solution is to make the function
+                                a proper (non-inner) class, ora static inner class.". That suggestion works, note that then the values
+                                accessed by the inner class are instead passed to the constructor of the static class
+                                */
+                                eitherKeySelector
                         )
-                        //.flatMap(new CoreTransformationFunction())//;
+                        /* Just like we cannot use an anonymous inner class for keyBy, because Flink it's not able to
+                         determine which fields we really need, we cannot have CoreTransformationFunction as an inner class
+                         that accesses arbitrary fields of this. We have to define it as a static class and explicitly
+                         pass whatever we need in the constructor (or with setters)
+                        * */
                         .flatMap(new CoreTransformationFunction<>(
                                     ttl.toMilliseconds(),
                                     ttlRefreshInterval.toMilliseconds(),
@@ -136,7 +141,7 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
             @Override
             public void flatMap(Either<Out, Key> either, Collector<Either<In, Key>> collector) throws Exception {
                 if (either.isRight()) {
-                    // collector.collect(either); // this fails
+                    // collector.collect(either); // this doesn't type check
                     // this makes the type transformation, and that's why we cannot use a filter
                     collector.collect(Either.<In, Key>Right(either.right()));
                 }
@@ -151,9 +156,6 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
                 }
             }
         }).returns(types.typeInfoOut);
-        // this does nothing due to type erasure
-        //.returns(TypeInformation.of(new TypeHint<Out>() {}));
-        //.returns(Class.class.<Out>cast(types.typeOut.getRawType())); // ok
 
         return output;
     }
@@ -200,10 +202,20 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
         this.defaultState = defaultState;
     }
 
+    /**
+     * This is basically the same as just org.apache.flink.api.common.function.MapFunction but adding an
+     * additional argument for the state.
+     * */
     public interface Function<In, State, Out> extends org.apache.flink.api.common.functions.Function {
-        // FIXME add note about exception thrown just like https://ci.apache.org/projects/flink/flink-docs-master/api/java/org/apache/flink/api/common/functions/MapFunction.html
-        // and above all double check this behaves the same as that, i.e. "Throwing an exception will cause the operation to fail and may trigger recovery"
-        // when used below
+        /**
+         * The mapping method. Takes an element from the input data set and transforms it into exactly one element. If
+         * might also get and/or update the provided state
+         * @param value The input value
+         * @param state The current state for this key.
+         * @return The transformed dalue
+         * @throws Exception This method may throw exceptions. Throwing an exception will cause the operation to fail and
+         * may trigger recovery.
+        * */
         Out map(In value, ValueState<State> state) throws Exception ; // HERE start writing a test to see if this interface works
     }
 
@@ -250,16 +262,16 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
         }
     }
 
-    //@RequiredArgsConstructor
-    public static class CoreTransformationFunction<In, Key, State, Out>  extends RichFlatMapFunction<Either<In, Key>, Either<Out, Key>>
-                                            implements Serializable, Checkpointed<LinkedList<Key>> {
+    public static class CoreTransformationFunction<In, Key, State, Out>
+            extends RichFlatMapFunction<Either<In, Key>, Either<Out, Key>>
+            implements Serializable, Checkpointed<LinkedList<Key>> {
+
         private static final long serialVersionUID = 1L;
 
-        private final long ttlMillis; // = MapWithState.this.ttl.toMilliseconds();
-        private final long ttlRefreshIntervalMillis; // = MapWithState.this.ttlRefreshInterval.toMilliseconds();
+        private final long ttlMillis;
+        private final long ttlRefreshIntervalMillis;
         private final State defaultState;
             // FIMXE why MeatLocker when Function extends Serializable?
-            // FIXME consider alternative solution based on RichFlatMapFunction init for this
         private final MeatLocker<MapWithState.Function<In, State, Out>> mapFunction;
         private final MeatLocker<KeySelector<In, Key>> keySelector;
 
@@ -316,7 +328,6 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
             }, ttlRefreshIntervalMillis, TimeUnit.MILLISECONDS);
         }
 
-        // FIXME handle IOException accessing the state
         @Override
         public void flatMap(Either<In, Key> either, Collector<Either<Out, Key>> collector) throws Exception {
             if (recoveringTombstones.isPresent()) {
@@ -332,8 +343,7 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
                 // state can be mutated here by mapFunction, and access to
                 // the state with value() will update state.lastAccessTimestamp
                 // call this here before updating the state
-                Out outputValue = //MapWithState.this.
-                        mapFunction.get().map(inputValue, state);
+                Out outputValue = mapFunction.get().map(inputValue, state);
                 if (! state.firstTombtoneSent) {
                     // sent tombstone to the same key: this is only required to send the first tombstone
                     // FIXME: this only works if we have access to the key!!!
@@ -363,7 +373,6 @@ public class MapWithState<In, Key, State, Out> implements Supplier<SingleOutputS
             }
         }
 
-        // FIXME handle IOException accessing the state
         @Override
         public LinkedList<Key> snapshotState(long checkpointId, long checkpointTimestamp) throws Exception {
             LinkedList<Key> state = Lists.newLinkedList(pendingTombstones);
